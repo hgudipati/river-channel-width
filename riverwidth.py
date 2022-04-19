@@ -2,6 +2,7 @@
 
 import numpy as np
 from matplotlib import pyplot as plt
+import pandas as pd
 
 class WidthNoncohesiveBanks(object):
     """
@@ -301,9 +302,14 @@ class WidthCohesiveBanks(object):
         """
         if self.tau_bank > self.tau_crit:
             # 2* because erosion & deposition are symmetrical across banks
-            self.db_widening = 2*self.k_d*self.h/self.h_banks \
-                                 * ( self.tau_bank - self.tau_crit ) \
-                                 * self.dt * self.intermittency
+            if self.h < self.h_banks:
+                self.db_widening = 2*self.k_d*self.h/self.h_banks \
+                                     * ( self.tau_bank - self.tau_crit ) \
+                                     * self.dt * self.intermittency
+            else:
+                self.db_widening = 2*self.k_d \
+                                     * ( self.tau_bank - self.tau_crit ) \
+                                     * self.dt * self.intermittency
         else:
             self.db_widening = 0.
 
@@ -430,12 +436,13 @@ class WidthCohesiveBanks(object):
         self.widen()
         #self.b.append(self.bi + self.db_widening)
         self.narrow()
+        self.h_series.append(h) # h is based on previous b but associated with
+                                # the discharge that created current b
         self.b.append(self.bi + self.db_widening - self.db_narrowing)
         #print(self.hclass.compute_depth( 500. ))
 
     def run(self):
-        # Start at 1: time 0 has the initial conditions
-        for i in range(1, len(self.t)):
+        for i in range(len(self.t)):
             # Not sure how inefficient this repeat check will be
             # Will find a better way in the future
             try:
@@ -450,13 +457,35 @@ class WidthCohesiveBanks(object):
         Prepending NaN at the beginning of discharge, water_depth, and time
         lists. This is because width list is initalized with b0. Water depth is
         prepended at the beginning of the class.
+        
+        The output DataFrame will contain:
+        * Date [datetime]
+        * Discharge [m^3/s]
+        * Channel width [m]
+        * Water depth [m]
+        
+        This is (consider updating to make width, depth consistent):
+        Date[now]
+        Discharge[now]
+        Depth[from discharge[now] and width[before]]
+        Width[[new]]
+
         """
+        
+        # Generate numpy arrays of equal length
         self.t.insert(0,np.nan)
         self.Q.insert(0,np.nan)
         self.t = np.array(self.t)
         self.b = np.array(self.b)
         self.Q = np.array(self.Q)
         self.h_series = np.array(self.h_series)
+        
+        # Create Pandas dataframe
+        self.df = pd.DataFrame()
+        self.df['Date'] = self.t
+        self.df['Discharge [m^3/s]'] = self.Q
+        self.df['Channel width [m]'] = self.b
+        self.df['Water depth [m]'] = self.h_series
 
     def plot(self):
         #b_eq = self.get_equilibriumWidth(self.Qi)
@@ -470,6 +499,18 @@ class WidthCohesiveBanks(object):
         #plt.legend(loc='lower right')
         plt.tight_layout()
         plt.show()
+        
+    def write_csv(self, filename):
+        """
+        Write CSV of the DataFrame:
+        * Date [datetime]
+        * Discharge [m^3/s]
+        * Channel width [m]
+        * Water depth [m]
+        """
+        if filename[-4:] != '.csv':
+            filename += '.csv'
+        self.df.to_csv(filename)
 
 
 class RiverWidth(WidthNoncohesiveBanks, WidthCohesiveBanks):
